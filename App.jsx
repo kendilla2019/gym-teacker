@@ -8,7 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Dumbbell, Scale, UtensilsCrossed, Plus, LogOut, Trophy, Trash2 } from "lucide-react";
+import { Dumbbell, Scale, UtensilsCrossed, Plus, LogOut, Trophy, Trash2, Camera } from "lucide-react";
 
 /* ---------- Supabase connection ---------- */
 const SUPABASE_URL = "https://lljdjeztpwxreywyodda.supabase.co";
@@ -33,14 +33,32 @@ async function sb(path, options = {}) {
   return res.json();
 }
 
+async function uploadPhoto(file, username) {
+  const fileName = `${username}/${Date.now()}-${file.name}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/progress-photos/${fileName}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": file.type,
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Photo upload failed (${res.status}): ${text}`);
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/progress-photos/${fileName}`;
+}
+
 /* ---------- design tokens ----------
   bg      #121110  near-black, warm
   surface #1C1A17
   line    #2C2924
   text    #F2EFE9
   muted   #8A8680
-  accent  #FF5A36  (loaded / active plate)
-  khaki   #C9BD93  (secondary data)
+  accent  #7C3AED  (loaded / active plate)
+  khaki   #C4B5FD  (secondary data)
 ------------------------------------ */
 
 const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');`;
@@ -122,7 +140,7 @@ function WeightStack({ current, max, unit = "kg" }) {
               key={i}
               style={{
                 ...styles.stackPlate,
-                background: lit ? "#FF5A36" : "#2C2924",
+                background: lit ? "#7C3AED" : "#2C2924",
                 boxShadow: lit ? "0 0 0 1px rgba(255,90,54,0.4)" : "none",
               }}
             />
@@ -177,7 +195,7 @@ function BodyTab({ data, onAdd, onDelete }) {
           <div style={{ flex: 1, height: 100, minWidth: 200 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <Line type="monotone" dataKey="kg" stroke="#FF5A36" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="kg" stroke="#7C3AED" strokeWidth={2} dot={false} />
                 <XAxis dataKey="date" hide />
                 <YAxis hide domain={["dataMin - 2", "dataMax + 2"]} />
                 <Tooltip contentStyle={styles.tooltip} labelStyle={{ color: "#8A8680" }} />
@@ -231,6 +249,10 @@ function BodyTab({ data, onAdd, onDelete }) {
 
 function FoodsTab({ data, onAdd, onDelete }) {
   const [text, setText] = useState("");
+  const [calories, setCalories] = useState("");
+  const [protein, setProtein] = useState("");
+  const [carbs, setCarbs] = useState("");
+  const [fat, setFat] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   const sorted = [...data].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -238,8 +260,19 @@ function FoodsTab({ data, onAdd, onDelete }) {
   const submit = (e) => {
     e.preventDefault();
     if (!text.trim()) return;
-    onAdd({ date, text: text.trim() });
+    onAdd({
+      date,
+      text: text.trim(),
+      calories: calories ? parseFloat(calories) : null,
+      protein: protein ? parseFloat(protein) : null,
+      carbs: carbs ? parseFloat(carbs) : null,
+      fat: fat ? parseFloat(fat) : null,
+    });
     setText("");
+    setCalories("");
+    setProtein("");
+    setCarbs("");
+    setFat("");
   };
 
   const grouped = sorted.reduce((acc, item) => {
@@ -248,14 +281,45 @@ function FoodsTab({ data, onAdd, onDelete }) {
     return acc;
   }, {});
 
+  const dayTotal = (items) =>
+    items.reduce((sum, i) => sum + (i.calories || 0), 0);
+
   return (
     <div>
       <form onSubmit={submit} style={styles.inlineForm}>
         <input
-          style={{ ...styles.inlineInput, flex: 2 }}
+          style={{ ...styles.inlineInput, flex: 2, minWidth: "100%" }}
           placeholder="What did you eat?"
           value={text}
           onChange={(e) => setText(e.target.value)}
+        />
+        <input
+          style={styles.inlineInput}
+          type="number"
+          placeholder="kcal"
+          value={calories}
+          onChange={(e) => setCalories(e.target.value)}
+        />
+        <input
+          style={styles.inlineInput}
+          type="number"
+          placeholder="protein g"
+          value={protein}
+          onChange={(e) => setProtein(e.target.value)}
+        />
+        <input
+          style={styles.inlineInput}
+          type="number"
+          placeholder="carbs g"
+          value={carbs}
+          onChange={(e) => setCarbs(e.target.value)}
+        />
+        <input
+          style={styles.inlineInput}
+          type="number"
+          placeholder="fat g"
+          value={fat}
+          onChange={(e) => setFat(e.target.value)}
         />
         <input
           style={styles.inlineInput}
@@ -271,10 +335,25 @@ function FoodsTab({ data, onAdd, onDelete }) {
       <div style={styles.logList}>
         {Object.keys(grouped).map((day) => (
           <div key={day} style={{ marginBottom: 18 }}>
-            <div style={styles.dayHeader}>{day}</div>
+            <div style={styles.dayHeader}>
+              {day}
+              {dayTotal(grouped[day]) > 0 && (
+                <span style={styles.dayTotal}> · {dayTotal(grouped[day])} kcal</span>
+              )}
+            </div>
             {grouped[day].map((item, i) => (
               <div key={item.id || i} style={styles.logRow}>
-                <span style={styles.logValue}>{item.text}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.logValue}>{item.text}</div>
+                  {(item.calories || item.protein || item.carbs || item.fat) && (
+                    <div style={styles.macroLine}>
+                      {item.calories ? `${item.calories} kcal` : ""}
+                      {item.protein ? ` · P${item.protein}g` : ""}
+                      {item.carbs ? ` · C${item.carbs}g` : ""}
+                      {item.fat ? ` · F${item.fat}g` : ""}
+                    </div>
+                  )}
+                </div>
                 <button style={styles.deleteBtn} onClick={() => onDelete(item)}>
                   <Trash2 size={14} />
                 </button>
@@ -344,7 +423,7 @@ function MachinesTab({ data, onAdd, onDelete }) {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData}>
                   <CartesianGrid stroke="#2C2924" vertical={false} />
-                  <Line type="monotone" dataKey="kg" stroke="#C9BD93" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="kg" stroke="#C4B5FD" strokeWidth={2} dot={{ r: 3 }} />
                   <XAxis dataKey="date" tick={{ fill: "#8A8680", fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
                   <Tooltip contentStyle={styles.tooltip} labelStyle={{ color: "#8A8680" }} />
@@ -424,7 +503,7 @@ function MachinesTab({ data, onAdd, onDelete }) {
               <span style={styles.logValue}>
                 {e.kg} kg{e.reps ? ` × ${e.reps}` : ""}
                 {e.kg === max && (
-                  <Trophy size={13} style={{ marginLeft: 6, color: "#FF5A36", verticalAlign: "-2px" }} />
+                  <Trophy size={13} style={{ marginLeft: 6, color: "#7C3AED", verticalAlign: "-2px" }} />
                 )}
               </span>
               <button style={styles.deleteBtn} onClick={() => onDelete(selected, e)}>
@@ -440,6 +519,68 @@ function MachinesTab({ data, onAdd, onDelete }) {
   );
 }
 
+/* ---------------- Photos tab ---------------- */
+
+function PhotosTab({ data, onAdd, onDelete, uploading }) {
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const fileInputRef = React.useRef(null);
+
+  const sorted = [...data].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    onAdd(file, date);
+    e.target.value = "";
+  };
+
+  return (
+    <div>
+      <div style={styles.inlineForm}>
+        <input
+          style={styles.inlineInput}
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
+        <button
+          type="button"
+          style={styles.addBtn}
+          onClick={() => fileInputRef.current && fileInputRef.current.click()}
+          disabled={uploading}
+        >
+          <Camera size={16} /> {uploading ? "UPLOADING…" : "ADD PHOTO"}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={handleFile}
+          style={{ display: "none" }}
+        />
+      </div>
+
+      <div style={styles.photoGrid}>
+        {sorted.map((p, i) => (
+          <div key={p.id || i} style={styles.photoCard}>
+            <img src={p.url} alt={p.date} style={styles.photoImg} />
+            <div style={styles.photoFooter}>
+              <span style={styles.photoDate}>{p.date}</span>
+              <button style={styles.deleteBtn} onClick={() => onDelete(p)}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {sorted.length === 0 && (
+          <div style={styles.emptyState}>No progress photos yet. Add one above.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- App ---------------- */
 
 export default function GymTrackerApp() {
@@ -447,6 +588,8 @@ export default function GymTrackerApp() {
   const [body, setBody] = useState([]);
   const [foods, setFoods] = useState([]);
   const [machines, setMachines] = useState({});
+  const [photos, setPhotos] = useState([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [tab, setTab] = useState("body");
   const [loading, setLoading] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -455,19 +598,31 @@ export default function GymTrackerApp() {
     setLoading(true);
     setSaveError("");
     try {
-      const [bodyRows, foodRows, machineRows] = await Promise.all([
+      const [bodyRows, foodRows, machineRows, photoRows] = await Promise.all([
         sb(`body_logs?username=eq.${encodeURIComponent(user)}&order=date.asc`),
         sb(`food_logs?username=eq.${encodeURIComponent(user)}&order=date.desc`),
         sb(`machine_logs?username=eq.${encodeURIComponent(user)}&order=date.asc`),
+        sb(`progress_photos?username=eq.${encodeURIComponent(user)}&order=date.desc`),
       ]);
       setBody(bodyRows.map((r) => ({ id: r.id, date: r.date, kg: r.kg })));
-      setFoods(foodRows.map((r) => ({ id: r.id, date: r.date, text: r.food_text })));
+      setFoods(
+        foodRows.map((r) => ({
+          id: r.id,
+          date: r.date,
+          text: r.food_text,
+          calories: r.calories,
+          protein: r.protein,
+          carbs: r.carbs,
+          fat: r.fat,
+        }))
+      );
       const grouped = {};
       machineRows.forEach((r) => {
         grouped[r.exercise] = grouped[r.exercise] || [];
         grouped[r.exercise].push({ id: r.id, date: r.date, kg: r.kg, reps: r.reps });
       });
       setMachines(grouped);
+      setPhotos(photoRows.map((r) => ({ id: r.id, date: r.date, url: r.photo_url })));
     } catch (err) {
       setSaveError("Couldn't load data: " + err.message);
     }
@@ -504,7 +659,15 @@ export default function GymTrackerApp() {
     try {
       await sb("food_logs", {
         method: "POST",
-        body: JSON.stringify({ username, date: entry.date, food_text: entry.text }),
+        body: JSON.stringify({
+          username,
+          date: entry.date,
+          food_text: entry.text,
+          calories: entry.calories,
+          protein: entry.protein,
+          carbs: entry.carbs,
+          fat: entry.fat,
+        }),
       });
       setSaveError("");
       loadAll(username);
@@ -516,6 +679,31 @@ export default function GymTrackerApp() {
   const deleteFood = async (entry) => {
     try {
       await sb(`food_logs?id=eq.${entry.id}`, { method: "DELETE" });
+      loadAll(username);
+    } catch (err) {
+      setSaveError("Didn't delete: " + err.message);
+    }
+  };
+
+  const addPhoto = async (file, date) => {
+    setUploadingPhoto(true);
+    try {
+      const url = await uploadPhoto(file, username);
+      await sb("progress_photos", {
+        method: "POST",
+        body: JSON.stringify({ username, date, photo_url: url }),
+      });
+      setSaveError("");
+      loadAll(username);
+    } catch (err) {
+      setSaveError("Didn't upload: " + err.message);
+    }
+    setUploadingPhoto(false);
+  };
+
+  const deletePhoto = async (photo) => {
+    try {
+      await sb(`progress_photos?id=eq.${photo.id}`, { method: "DELETE" });
       loadAll(username);
     } catch (err) {
       setSaveError("Didn't delete: " + err.message);
@@ -556,6 +744,7 @@ export default function GymTrackerApp() {
     { id: "body", label: "BODY", icon: Scale },
     { id: "foods", label: "FOODS", icon: UtensilsCrossed },
     { id: "machines", label: "MACHINES", icon: Dumbbell },
+    { id: "photos", label: "PHOTOS", icon: Camera },
   ];
 
   return (
@@ -595,8 +784,10 @@ export default function GymTrackerApp() {
           <BodyTab data={body} onAdd={addBody} onDelete={deleteBody} />
         ) : tab === "foods" ? (
           <FoodsTab data={foods} onAdd={addFood} onDelete={deleteFood} />
-        ) : (
+        ) : tab === "machines" ? (
           <MachinesTab data={machines} onAdd={addMachine} onDelete={deleteMachine} />
+        ) : (
+          <PhotosTab data={photos} onAdd={addPhoto} onDelete={deletePhoto} uploading={uploadingPhoto} />
         )}
       </main>
     </div>
@@ -671,21 +862,21 @@ const styles = {
   },
   navBtnActive: {
     color: "#F2EFE9",
-    borderBottom: "2px solid #FF5A36",
+    borderBottom: "2px solid #7C3AED",
   },
   main: {},
   saveErrorBanner: {
     background: "rgba(255,90,54,0.1)",
-    border: "1px solid #FF5A36",
+    border: "1px solid #7C3AED",
     borderRadius: 6,
-    color: "#FF5A36",
+    color: "#7C3AED",
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 12,
     padding: "10px 12px",
     marginBottom: 16,
   },
   formErrorText: {
-    color: "#FF5A36",
+    color: "#7C3AED",
     fontSize: 12,
     fontFamily: "'JetBrains Mono', monospace",
     marginTop: -10,
@@ -750,7 +941,7 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    background: "#FF5A36",
+    background: "#7C3AED",
     border: "none",
     borderRadius: 6,
     color: "#121110",
@@ -797,8 +988,46 @@ const styles = {
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 11,
     letterSpacing: 1,
-    color: "#C9BD93",
+    color: "#C4B5FD",
     marginBottom: 6,
+  },
+  dayTotal: {
+    color: "#8A8680",
+    fontWeight: 400,
+  },
+  macroLine: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 11,
+    color: "#8A8680",
+    marginTop: 2,
+  },
+  photoGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  },
+  photoCard: {
+    background: "#1C1A17",
+    border: "1px solid #2C2924",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  photoImg: {
+    width: "100%",
+    height: 160,
+    objectFit: "cover",
+    display: "block",
+  },
+  photoFooter: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "8px 10px",
+  },
+  photoDate: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 10,
+    color: "#8A8680",
   },
   emptyState: {
     color: "#8A8680",
@@ -825,8 +1054,8 @@ const styles = {
   },
   exerciseTabActive: {
     color: "#121110",
-    background: "#C9BD93",
-    borderColor: "#C9BD93",
+    background: "#C4B5FD",
+    borderColor: "#C4B5FD",
   },
   stackWrap: {
     display: "flex",
@@ -860,7 +1089,7 @@ const styles = {
   stackMax: {
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 11,
-    color: "#FF5A36",
+    color: "#7C3AED",
     marginTop: 2,
   },
   /* login */
@@ -886,7 +1115,7 @@ const styles = {
     top: "50%",
     transform: "translate(0,-50%)",
     borderRadius: "50%",
-    border: "10px solid #FF5A36",
+    border: "10px solid #7C3AED",
   },
   loginCard: {
     position: "relative",
@@ -902,7 +1131,7 @@ const styles = {
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 11,
     letterSpacing: 2,
-    color: "#FF5A36",
+    color: "#7C3AED",
   },
   loginTitle: {
     fontFamily: "'Oswald', sans-serif",
@@ -940,14 +1169,14 @@ const styles = {
     outline: "none",
   },
   errorText: {
-    color: "#FF5A36",
+    color: "#7C3AED",
     fontSize: 12,
     marginTop: 10,
     fontFamily: "'JetBrains Mono', monospace",
   },
   primaryBtn: {
     width: "100%",
-    background: "#FF5A36",
+    background: "#7C3AED",
     border: "none",
     borderRadius: 6,
     color: "#121110",
